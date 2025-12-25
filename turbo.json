@@ -30,7 +30,8 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "env": ["ENABLE_TRACING", "JAEGER_OTLP_ENDPOINT", "KAFKA_BROKERS", "PORT"]
     },
     "start": {
       "cache": false,

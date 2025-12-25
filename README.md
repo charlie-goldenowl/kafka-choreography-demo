@@ -52,10 +52,10 @@ Each service is independent, communicating via Kafka events, with no central orc
        ┌─────────────────┴───────────────────┐
        │                                     │
        ▼                                     ▼
-┌──────────────┐                    ┌──────────────┐
-│  Zookeeper   │                    │   Kafka UI   │
-│ (Port 2181)  │                    │ (Port 8080)  │
-└──────────────┘                    └──────────────┘
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  Zookeeper   │  │   Kafka UI   │  │    Jaeger    │
+│ (Port 2181)  │  │ (Port 8080)  │  │ (Port 16686) │
+└──────────────┘  └──────────────┘  └──────────────┘
 ```
 
 ### Component Overview
@@ -75,6 +75,7 @@ Each service is independent, communicating via Kafka events, with no central orc
 - **Kafka Broker**: Message broker for event streaming
 - **Zookeeper**: Coordinates Kafka cluster
 - **Kafka UI**: Web interface for monitoring topics and messages
+- **Jaeger**: Distributed tracing system for observability
 
 **Communication:**
 - Services communicate via Kafka events (no direct HTTP calls between services)
@@ -150,8 +151,8 @@ Order Service          Inventory Service      Payment Service      Notification 
 **Complete setup in 4 steps:**
 
 ```bash
-# 1. Start Kafka infrastructure
-docker compose up -d zookeeper kafka kafka-ui
+# 1. Start infrastructure (Kafka + Jaeger)
+docker compose up -d zookeeper kafka kafka-ui jaeger
 
 # 2. Install dependencies
 npm install
@@ -165,6 +166,10 @@ npm run dev
 
 That's it! All services will start in parallel. Check health endpoints or proceed to testing.
 
+**Access dashboards:**
+- Kafka UI: http://localhost:8080
+- Jaeger UI: http://localhost:16686
+
 ## 🚀 Installation and Running
 
 ### 1. Start Kafka Infrastructure
@@ -177,8 +182,11 @@ This will start:
 - **Zookeeper** (port 2181) - Manages Kafka cluster
 - **Kafka Broker** (port 9092) - Message broker
 - **Kafka UI** (port 8080) - Dashboard to view topics and messages
+- **Jaeger** (port 16686) - Distributed tracing UI
 
-Check Kafka UI at: http://localhost:8080
+Check services:
+- Kafka UI: http://localhost:8080
+- Jaeger UI: http://localhost:16686
 
 **Verify Kafka is running:**
 ```bash
@@ -505,6 +513,68 @@ curl http://localhost:3001/orders
 - Filter by headers (eventType, userId)
 - View consumer groups and lag
 
+## 🔍 Distributed Tracing with Jaeger
+
+### Enable Tracing
+
+Tracing is optional and can be enabled by setting environment variable:
+
+```bash
+# Enable tracing for all services
+export ENABLE_TRACING=true
+
+# Then start services
+npm run dev
+```
+
+Or enable for specific service:
+
+```bash
+ENABLE_TRACING=true npm run dev:order
+```
+
+### Access Jaeger UI
+
+1. Open browser and navigate to: http://localhost:16686
+2. Select service from dropdown (e.g., `order-service`)
+3. Click **Find Traces** to see traces
+
+### View Traces
+
+**Trace a complete order flow:**
+
+1. Create an order via API:
+   ```bash
+   curl -X POST http://localhost:3001/orders \
+     -H "Content-Type: application/json" \
+     -d '{"orderId":"order-trace-1","userId":"user-1","items":[{"itemId":"item-1","name":"Product 1","quantity":1,"price":100}],"totalAmount":100}'
+   ```
+
+2. Go to Jaeger UI: http://localhost:16686
+3. Select service: `order-service`
+4. Click **Find Traces**
+5. You'll see the complete trace showing:
+   - Order creation
+   - Inventory reservation
+   - Payment processing
+   - Order confirmation
+
+### Trace Details
+
+Each trace shows:
+- **Service Name**: Which service executed the operation
+- **Operation Name**: The specific operation (e.g., `createOrder`, `processPayment`)
+- **Duration**: How long each operation took
+- **Tags**: Additional metadata (orderId, userId, etc.)
+- **Logs**: Error messages and events
+
+### Benefits
+
+- 🔍 **End-to-end visibility**: See complete request flow across all services
+- ⏱️ **Performance monitoring**: Identify bottlenecks and slow operations
+- 🐛 **Debugging**: Trace errors across service boundaries
+- 📊 **Dependency mapping**: Understand service interactions
+
 ## 🔍 Project Structure
 
 ```
@@ -728,6 +798,12 @@ npm run check
 - Dashboard to view Kafka topics, messages, and consumer groups
 - Real-time event monitoring
 - Message filtering and search
+
+**Jaeger UI** (http://localhost:16686):
+- Distributed tracing dashboard
+- View traces across all microservices
+- Performance analysis and debugging
+- Service dependency graph
 
 **Order Service** (http://localhost:3001):
 - `GET /health` - Health check

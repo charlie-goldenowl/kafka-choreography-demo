@@ -14,7 +14,15 @@
     "check": "biome check .",
     "check:fix": "biome check --write ."
   },
-  "dependencies": {},
+  "dependencies": {
+    "@opentelemetry/api": "^1.8.0",
+    "@opentelemetry/sdk-trace-base": "^1.24.1",
+    "@opentelemetry/sdk-trace-node": "^1.24.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.52.1",
+    "@opentelemetry/instrumentation": "^0.52.1",
+    "@opentelemetry/resources": "^1.24.1",
+    "@opentelemetry/semantic-conventions": "^1.24.1"
+  },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^20.10.0",

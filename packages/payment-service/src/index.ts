@@ -1,9 +1,15 @@
 import { producer } from './kafka/client.js';
 import { subscribeToEvents } from './kafka/subscriber.js';
 import { startServer } from './api/server.js';
+import { initTracing } from '@kafka-choreography/shared';
 
 async function main(): Promise<void> {
   try {
+    // Initialize tracing (optional, enable with ENABLE_TRACING=true)
+    if (process.env.ENABLE_TRACING === 'true') {
+      initTracing('payment-service');
+    }
+
     // Connect Kafka producer
     await producer.connect();
     console.log('✅ Kafka producer connected');
