@@ -43,8 +43,8 @@ Each service is independent, communicating via Kafka events, with no central orc
 │   Service    │ │   Service    │ │   Service    │ │   Broker     │
 │ (Port 3002)  │ │ (Port 3003)  │ │ (Port 3004)  │ │ (Port 9092)  │
 └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-       │                 │                 │                 │
-       └─────────────────┴─────────────────┴─────────────────┘
+       │                │                │                │
+       └────────────────┴────────────────┴────────────────┘
                          │
                     Events Flow
               (Choreography Pattern)
@@ -92,19 +92,19 @@ Order Service          Inventory Service      Payment Service      Notification 
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.reserved ──┤                      │                      │
+     │ <─ inventory.reserved ─┤                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
      │ <─ payment.processed ─────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ order.confirmed ───────┼──────────────────────┼──────────────────────┤
+     ├─ order.confirmed ──────┼──────────────────────┼──────────────────────┤
      │                        │                      │                      │
-     ├─ notification.send ────────────────────────────┼─────────────────────>│
-     │   .requested            │                      │                      │
+     ├─ notification.send ───────────────────────────┼─────────────────────>│
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ notification.sent ───────────────────────────┼──────────────────────┤
+     │ <─ notification.sent ─────────────────────────┼──────────────────────┤
 ```
 
 ### ❌ Event Flow (Failure Path - Compensation)
@@ -117,27 +117,27 @@ Order Service          Inventory Service      Payment Service      Notification 
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.reserved ──┤                      │                      │
+     │ <─ inventory.reserved ─┤                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
      │ <─ payment.failed ────────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ order.cancelled ───────┼──────────────────────┼──────────────────────┤
+     ├─ order.cancelled ──────┼──────────────────────┼──────────────────────┤
      │                        │                      │                      │
      ├─ inventory.release ────>                      │                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.released ──┤                      │                      │
+     │ <─ inventory.released ─┤                      │                      │
      │                        │                      │                      │
-     ├─ payment.refund ──────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     ├─ payment.refund ─────────────────────────────>│                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ payment.refunded ───────────────────────────┤                      │
+     │ <─ payment.refunded ──────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ notification.send ────────────────────────────┼─────────────────────>│
-     │   .requested            │                      │                      │
+     ├─ notification.send ───────────────────────────┼─────────────────────>│
+     │   .requested           │                      │                      │
 ```
 
 ## 📋 Requirements
