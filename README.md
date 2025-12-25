@@ -91,19 +91,19 @@ Order Service          Inventory Service      Payment Service      Notification 
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.reserved ──┤                      │                      │
+     │ <─ inventory.reserved ─┤                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
      │ <─ payment.processed ─────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ order.confirmed ───────┼──────────────────────┼──────────────────────┤
+     ├─ order.confirmed ──────┼──────────────────────┼──────────────────────┤
      │                        │                      │                      │
-     ├─ notification.send ────────────────────────────┼─────────────────────>│
-     │   .requested            │                      │                      │
+     ├─ notification.send ───────────────────────────┼─────────────────────>│
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ notification.sent ───────────────────────────┼──────────────────────┤
+     │ <─ notification.sent ─────────────────────────┼──────────────────────┤
 ```
 
 ### ❌ Event Flow (Failure Path - Compensation)
@@ -116,27 +116,27 @@ Order Service          Inventory Service      Payment Service      Notification 
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.reserved ──┤                      │                      │
+     │ <─ inventory.reserved ─┤                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
      │ <─ payment.failed ────────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ order.cancelled ───────┼──────────────────────┼──────────────────────┤
+     ├─ order.cancelled ──────┼──────────────────────┼──────────────────────┤
      │                        │                      │                      │
      ├─ inventory.release ────>                      │                      │
-     │   .requested            │                      │                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.released ──┤                      │                      │
+     │ <─ inventory.released ─┤                      │                      │
      │                        │                      │                      │
-     ├─ payment.refund ──────────────────────────────>│                      │
-     │   .requested            │                      │                      │
+     ├─ payment.refund ─────────────────────────────>│                      │
+     │   .requested           │                      │                      │
      │                        │                      │                      │
-     │ <─ payment.refunded ───────────────────────────┤                      │
+     │ <─ payment.refunded ──────────────────────────┤                      │
      │                        │                      │                      │
-     ├─ notification.send ────────────────────────────┼─────────────────────>│
-     │   .requested            │                      │                      │
+     ├─ notification.send ───────────────────────────┼─────────────────────>│
+     │   .requested           │                      │                      │
 ```
 
 ## 📋 Requirements
