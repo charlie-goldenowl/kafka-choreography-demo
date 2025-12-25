@@ -8,4 +8,5 @@ build/
 *.log
 coverage/
 .nyc_output/
+.turbo/
 

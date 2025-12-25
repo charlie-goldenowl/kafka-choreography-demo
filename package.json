@@ -4,25 +4,29 @@
   "description": "Kafka choreography pattern microservices for order processing",
   "type": "module",
   "private": true,
+  "packageManager": "npm@10.0.0",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "start:order": "npm run start --workspace=order-service",
-    "start:inventory": "npm run start --workspace=inventory-service",
-    "start:payment": "npm run start --workspace=payment-service",
-    "start:notification": "npm run start --workspace=notification-service",
-    "start:all": "npm run start --workspaces",
-    "dev:order": "npm run dev --workspace=order-service",
-    "dev:inventory": "npm run dev --workspace=inventory-service",
-    "dev:payment": "npm run dev --workspace=payment-service",
-    "dev:notification": "npm run dev --workspace=notification-service",
-    "typecheck": "npm run typecheck --workspaces",
-    "lint": "npm run lint --workspaces",
-    "lint:fix": "npm run lint:fix --workspaces",
-    "format": "npm run format --workspaces",
-    "check": "npm run check --workspaces"
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "turbo run format",
+    "check": "turbo run check",
+    "check:fix": "turbo run check:fix",
+    "dev": "turbo run dev",
+    "dev:order": "turbo run dev --filter=order-service",
+    "dev:inventory": "turbo run dev --filter=inventory-service",
+    "dev:payment": "turbo run dev --filter=payment-service",
+    "dev:notification": "turbo run dev --filter=notification-service",
+    "start": "turbo run start",
+    "start:order": "turbo run start --filter=order-service",
+    "start:inventory": "turbo run start --filter=inventory-service",
+    "start:payment": "turbo run start --filter=payment-service",
+    "start:notification": "turbo run start --filter=notification-service",
+    "start:all": "turbo run start"
   },
   "keywords": [
     "kafka",
@@ -36,7 +40,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^20.10.0",
+    "turbo": "^2.7.2",
     "typescript": "^5.3.3"
   }
 }
-
