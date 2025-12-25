@@ -43,8 +43,8 @@ Each service is independent, communicating via Kafka events, with no central orc
 │   Service    │ │   Service    │ │   Service    │ │   Broker     │
 │ (Port 3002)  │ │ (Port 3003)  │ │ (Port 3004)  │ │ (Port 9092)  │
 └──────┬───────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-       │                 │                 │                 │
-       └─────────────────┴─────────────────┴─────────────────┘
+       │                │                │                │
+       └────────────────┴────────────────┴────────────────┘
                          │
                     Events Flow
               (Choreography Pattern)
