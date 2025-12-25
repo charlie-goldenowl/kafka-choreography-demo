@@ -81,191 +81,6 @@ Each service is independent, communicating via Kafka events, with no central orc
 - Each service subscribes to relevant topics and publishes events
 - Eventually consistent - services may process events at different times
 
-### 📊 Event Flow (Success Path) with Jaeger Tracing
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              Happy Path Flow with Distributed Tracing                   │
-│                                    (Single Trace ID)                                    │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-Order Service          Inventory Service      Payment Service      Notification Service
-     │                        │                      │                      │
-     │ [Span: createOrder]    │                      │                      │
-     │   Trace ID: xxxxx     │                      │                      │
-     │   Order ID: order-123  │                      │                      │
-     │                        │                      │                      │
-     ├─ order.created ────────┼──────────────────────┼──────────────────────┤
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     ├─ inventory.reserve ────>                      │                      │
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │ [Span: processEvent] │                      │
-     │                        │ [Context extracted] │                      │
-     │                        │ [Span: handle...]   │                      │
-     │                        │                      │                      │
-     │ <─ inventory.reserved ─┤                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │ [Span: handle...]      │                      │                      │
-     │                        │                      │                      │
-     ├─ payment.process ────────────────────────────>│                      │
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │                      │ [Span: processEvent] │
-     │                        │                      │ [Context extracted] │
-     │                        │                      │ [Span: handle...]    │
-     │                        │                      │                      │
-     │ <─ payment.processed ──────────────────────────┤                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │ [Span: handle...]      │                      │                      │
-     │                        │                      │                      │
-     ├─ order.confirmed ───────┼──────────────────────┼──────────────────────┤
-     │                        │                      │                      │
-     ├─ notification.send ────────────────────────────────────────────────>│
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │                      │                      │ [Span: processEvent]
-     │                        │                      │                      │ [Context extracted]
-     │                        │                      │                      │ [Span: handle...]
-     │                        │                      │                      │
-     │                        │                      │                      │<─ notification.sent
-     │                        │                      │                      │
-     │ ✅ Order Confirmed     │                      │                      │
-     └────────────────────────┴──────────────────────┴──────────────────────┘
-
-📊 Jaeger Trace Structure:
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Trace ID: xxxxx (same for all spans)                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Span 1:  [order-service]     http.post.orders                              │
-│ Span 2:  [order-service]     createOrder                                    │
-│ Span 3:  [order-service]     publishEvent (order.created)                  │
-│ Span 4:  [order-service]     publishEvent (inventory.reserve.requested)     │
-│ Span 5:  [inventory-service] processEvent (kafka.consume)                  │
-│ Span 6:  [inventory-service] handleInventoryReserveRequested                │
-│ Span 7:  [inventory-service] publishEvent (inventory.reserved)              │
-│ Span 8:  [order-service]     processEvent (kafka.consume)                  │
-│ Span 9:  [order-service]     handleInventoryReserved                        │
-│ Span 10: [order-service]     publishEvent (payment.process.requested)       │
-│ Span 11: [payment-service]   processEvent (kafka.consume)                   │
-│ Span 12: [payment-service]   handlePaymentProcessRequested                  │
-│ Span 13: [payment-service]   publishEvent (payment.processed)               │
-│ Span 14: [order-service]     processEvent (kafka.consume)                   │
-│ Span 15: [order-service]     handlePaymentProcessed                          │
-│ Span 16: [order-service]     publishEvent (order.confirmed)                 │
-│ Span 17: [order-service]     publishEvent (notification.send.requested)     │
-│ Span 18: [notification-svc]  processEvent (kafka.consume)                    │
-│ Span 19: [notification-svc]  handleNotificationSendRequested                │
-│ Span 20: [notification-svc]  publishEvent (notification.sent)                │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-🔗 Context Propagation:
-   - Trace context injected into Kafka message headers when publishing
-   - Trace context extracted from Kafka message headers when consuming
-   - All spans share the same Trace ID, creating a complete distributed trace
-```
-
-### ❌ Event Flow (Failure Path - Compensation) with Jaeger Tracing
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                        Compensation Flow with Distributed Tracing                       │
-│                                    (Single Trace ID)                                    │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-Order Service          Inventory Service      Payment Service      Notification Service
-     │                        │                      │                      │
-     │ [Span: createOrder]    │                      │                      │
-     │   Trace ID: yyyyy     │                      │                      │
-     │   Order ID: order-456  │                      │                      │
-     │                        │                      │                      │
-     ├─ order.created ────────┼──────────────────────┼──────────────────────┤
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     ├─ inventory.reserve ────>                      │                      │
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │ [Span: processEvent] │                      │
-     │                        │ [Context extracted] │                      │
-     │                        │ [Span: handle...]   │                      │
-     │                        │                      │                      │
-     │ <─ inventory.reserved ─┤                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │ [Span: handle...]      │                      │                      │
-     │                        │                      │                      │
-     ├─ payment.process ────────────────────────────>│                      │
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │                      │ [Span: processEvent] │
-     │                        │                      │ [Context extracted] │
-     │                        │                      │ [Span: handle...]    │
-     │                        │                      │ ❌ Payment Failed    │
-     │                        │                      │                      │
-     │ <─ payment.failed ────────────────────────────┤                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │ [Span: handle...]      │                      │                      │
-     │ [Span: cancelOrder]    │                      │                      │
-     │                        │                      │                      │
-     ├─ order.cancelled ───────┼──────────────────────┼──────────────────────┤
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     ├─ inventory.release ────>                      │                      │
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │ [Span: processEvent] │                      │
-     │                        │ [Context extracted] │                      │
-     │                        │ [Span: handle...]    │                      │
-     │                        │                      │                      │
-     ├─ notification.send ────────────────────────────────────────────────>│
-     │   .requested           │                      │                      │
-     │ [Context injected]     │                      │                      │
-     │                        │                      │                      │
-     │                        │                      │                      │ [Span: processEvent]
-     │                        │                      │                      │ [Context extracted]
-     │                        │                      │                      │ [Span: handle...]
-     │                        │                      │                      │
-     │ ❌ Order Cancelled     │                      │                      │
-     │    (Compensation)      │                      │                      │
-     └────────────────────────┴──────────────────────┴──────────────────────┘
-
-📊 Jaeger Trace Structure (Compensation):
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ Trace ID: yyyyy (same for all spans)                                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Span 1-10:  [Same as happy path until payment failure]                     │
-│ Span 11: [payment-service]   handlePaymentProcessRequested                  │
-│ Span 12: [payment-service]   publishEvent (payment.failed) ❌               │
-│ Span 13: [order-service]     processEvent (kafka.consume)                    │
-│ Span 14: [order-service]     handlePaymentFailed                            │
-│ Span 15: [order-service]     cancelOrder                                    │
-│ Span 16: [order-service]     publishEvent (order.cancelled)                 │
-│ Span 17: [order-service]     publishEvent (inventory.release.requested)     │
-│ Span 18: [inventory-service] processEvent (kafka.consume)                    │
-│ Span 19: [inventory-service] handleInventoryReleaseRequested                 │
-│ Span 20: [inventory-service] publishEvent (inventory.released)              │
-│ Span 21: [order-service]     publishEvent (notification.send.requested)      │
-│ Span 22: [notification-svc]  processEvent (kafka.consume)                   │
-│ Span 23: [notification-svc]  handleNotificationSendRequested                  │
-│ Span 24: [notification-svc]  publishEvent (notification.sent)                │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-🔗 Context Propagation:
-   - All spans maintain the same Trace ID throughout the compensation flow
-   - Context propagated via Kafka headers ensures trace continuity
-   - Complete visibility into rollback operations
-```
-
 ## 📋 Requirements
 
 - Docker and Docker Compose
@@ -823,42 +638,6 @@ Each trace shows:
 - **Tags**: Additional metadata (orderId, userId, etc.)
 - **Logs**: Error messages and events
 
-### Benefits
-
-- 🔍 **End-to-end visibility**: See complete request flow across all services
-- ⏱️ **Performance monitoring**: Identify bottlenecks and slow operations
-- 🐛 **Debugging**: Trace errors across service boundaries
-- 📊 **Dependency mapping**: Understand service interactions
-
-## 🔍 Project Structure
-
-```
-kafka-choreography-demo/
-├── docker-compose.yml          # Docker compose for Kafka and services
-├── package.json                # Workspace root with Turborepo
-├── turbo.json                  # Turborepo configuration
-├── tsconfig.json               # TypeScript configuration
-├── biome.json                  # Linter/Formatter config
-├── packages/
-│   ├── shared/                 # Shared types and events
-│   │   ├── src/
-│   │   │   ├── types/          # Type definitions
-│   │   │   └── events/         # Event definitions
-│   │   └── package.json
-│   ├── order-service/          # Order Service
-│   │   ├── src/
-│   │   │   ├── handlers/       # Event handlers
-│   │   │   ├── kafka/          # Kafka client, publisher, subscriber
-│   │   │   ├── storage/         # In-memory store
-│   │   │   ├── api/            # HTTP server
-│   │   │   └── index.ts
-│   │   └── Dockerfile
-│   ├── inventory-service/      # Inventory Service
-│   ├── payment-service/        # Payment Service
-│   ├── notification-service/  # Notification Service
-│   └── client/                 # Test client
-└── README.md
-```
 
 ## 🎯 Workflow Logic
 
@@ -878,15 +657,6 @@ When payment fails:
 3. **Release Inventory** → Inventory Service releases, publishes `inventory.released`
 4. **Refund Payment** → Payment Service refunds (if payment was processed), publishes `payment.refunded`
 5. **Send Cancellation Email** → Notification Service sends cancellation email
-
-### 🔄 Choreography Pattern Explanation
-
-**Choreography Pattern** ensures data consistency in distributed systems:
-
-1. **No Orchestrator**: Each service decides its actions based on received events
-2. **Eventually Consistent**: Services may not sync immediately, but will eventually be consistent
-3. **Idempotency**: Each event handler can be safely retried
-4. **Durability**: Kafka ensures all events are stored and can be replayed
 
 ### 📋 Event Types
 
@@ -908,7 +678,7 @@ When payment fails:
 | `notification.send.requested` | Order Service | Notification Service | Request to send notification |
 | `notification.sent` | Notification Service | (monitoring) | Notification sent |
 
-## 🧪 Test Cases with cURL Commands
+## Test Cases with cURL Commands
 
 ### Test Case 1: Happy Path (Success)
 
@@ -1004,45 +774,6 @@ curl http://localhost:3003/payments
 
 **Total: ~24-30 spans in a single trace, all sharing the same Trace ID.**
 
-## 📝 Logs
-
-Services will log detailed steps:
-- 🚀 Service started
-- 📝 Order created
-- 📦 Inventory reserved/released
-- 💳 Payment processed/refunded
-- 📧 Email sent
-- 🔄 Compensation steps (if any)
-- ✅❌ Final result
-
-## ⚡ Performance & Scaling
-
-### Service Scaling
-
-**Can scale each service independently:**
-
-```bash
-# Scale order service
-docker-compose up -d --scale order-service=3
-
-# Scale payment service
-docker-compose up -d --scale payment-service=2
-```
-
-### Kafka Consumer Groups
-
-Each service has its own consumer group, allowing:
-- **Parallel Processing**: Multiple instances of the same service can process messages in parallel
-- **Load Balancing**: Kafka automatically distributes messages among consumers in the same group
-- **Fault Tolerance**: If one instance fails, other instances continue processing
-
-### Best Practices
-
-1. **Idempotency**: All event handlers are idempotent
-2. **Error Handling**: Implement dead letter queue for failed messages
-3. **Monitoring**: Use Kafka UI to monitor topics and consumer lag
-4. **Event Sourcing**: Can store events for replay or audit
-
 ## 🔧 Development
 
 ### Monorepo Management with Turborepo
@@ -1081,32 +812,6 @@ npx turbo build --output-logs=new-only
 
 # Dry run (see what would be executed)
 npx turbo build --dry-run
-```
-
-**Performance Benefits:**
-- ⚡ **Fast builds**: Parallel execution across all packages
-- 🔄 **Incremental builds**: Only rebuilds what changed (based on file hashes)
-- 📦 **Task dependencies**: Automatically handles build order (shared package builds first)
-- 🎯 **Filter support**: Run tasks on specific packages or workspaces
-- 💾 **Intelligent caching**: Cache hits in ~100ms vs full rebuild in ~2s
-
-### Linting & Formatting
-
-```bash
-# Lint all packages (parallel execution)
-npm run lint
-
-# Fix linting errors
-npm run lint:fix
-
-# Format code
-npm run format
-
-# Type check all packages
-npm run typecheck
-
-# Run all checks
-npm run check
 ```
 
 ### API Endpoints
@@ -1153,14 +858,3 @@ npm run check
 | **Scalability** | Depends on Temporal | Easy to scale (stateless services) |
 | **Debugging** | Easier (has Temporal UI) | Harder (must trace events) |
 | **Failure Handling** | Automatic retry and compensation | Must implement retry logic |
-
-## 📚 References
-
-- [Kafka Documentation](https://kafka.apache.org/documentation/)
-- [Event-Driven Architecture](https://martinfowler.com/articles/201701-event-driven.html)
-- [Choreography vs Orchestration](https://www.oreilly.com/library/view/building-microservices/9781491950340/ch04.html)
-- [Microservices Patterns](https://microservices.io/patterns/index.html)
-
-## 📄 License
-
-MIT
