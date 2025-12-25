@@ -1,0 +1,42 @@
+{
+  "name": "kafka-choreography-demo",
+  "version": "1.0.0",
+  "description": "Kafka choreography pattern microservices for order processing",
+  "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "start:order": "npm run start --workspace=order-service",
+    "start:inventory": "npm run start --workspace=inventory-service",
+    "start:payment": "npm run start --workspace=payment-service",
+    "start:notification": "npm run start --workspace=notification-service",
+    "start:all": "npm run start --workspaces",
+    "dev:order": "npm run dev --workspace=order-service",
+    "dev:inventory": "npm run dev --workspace=inventory-service",
+    "dev:payment": "npm run dev --workspace=payment-service",
+    "dev:notification": "npm run dev --workspace=notification-service",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces",
+    "lint:fix": "npm run lint:fix --workspaces",
+    "format": "npm run format --workspaces",
+    "check": "npm run check --workspaces"
+  },
+  "keywords": [
+    "kafka",
+    "microservice",
+    "choreography",
+    "event-driven",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  }
+}
+
