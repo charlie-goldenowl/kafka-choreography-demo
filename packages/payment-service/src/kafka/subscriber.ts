@@ -3,6 +3,7 @@ import {
   type OrderCancelledEvent,
   type PaymentProcessRequestedEvent,
   type PaymentRefundRequestedEvent,
+  withSpanFromContext,
 } from '@kafka-choreography/shared';
 import { consumer } from './client.js';
 import {
@@ -27,32 +28,41 @@ export async function subscribeToEvents(): Promise<void> {
       }
 
       try {
-        const event = JSON.parse(message.value.toString());
+        const event = JSON.parse(message.value!.toString());
 
-        console.log(`📨 Received event: ${event.eventType}`, {
-          topic,
-          partition,
-          orderId: event.orderId,
-          eventId: event.eventId,
+        await withSpanFromContext('payment-service', 'processEvent', message.headers || {}, async (span) => {
+          span.setAttributes({
+            'kafka.topic': topic,
+            'kafka.partition': partition,
+            'event.type': event.eventType,
+            'order.id': event.orderId || 'unknown',
+          });
+
+          console.log(`📨 Received event: ${event.eventType}`, {
+            topic,
+            partition,
+            orderId: event.orderId,
+            eventId: event.eventId,
+          });
+
+          // Route event to appropriate handler
+          switch (event.eventType) {
+            case EventType.PAYMENT_PROCESS_REQUESTED:
+              await handlePaymentProcessRequested(event as PaymentProcessRequestedEvent);
+              break;
+
+            case EventType.PAYMENT_REFUND_REQUESTED:
+              await handlePaymentRefundRequested(event as PaymentRefundRequestedEvent);
+              break;
+
+            case EventType.ORDER_CANCELLED:
+              await handleOrderCancelled(event as OrderCancelledEvent);
+              break;
+
+            default:
+              console.warn('⚠️ Unknown event type', { eventType: event.eventType });
+          }
         });
-
-        // Route event to appropriate handler
-        switch (event.eventType) {
-          case EventType.PAYMENT_PROCESS_REQUESTED:
-            await handlePaymentProcessRequested(event as PaymentProcessRequestedEvent);
-            break;
-
-          case EventType.PAYMENT_REFUND_REQUESTED:
-            await handlePaymentRefundRequested(event as PaymentRefundRequestedEvent);
-            break;
-
-          case EventType.ORDER_CANCELLED:
-            await handleOrderCancelled(event as OrderCancelledEvent);
-            break;
-
-          default:
-            console.warn('⚠️ Unknown event type', { eventType: event.eventType });
-        }
       } catch (error) {
         console.error('❌ Error processing message', {
           topic,

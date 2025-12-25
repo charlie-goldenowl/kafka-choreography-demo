@@ -4,8 +4,8 @@ import {
   type InventoryReservationFailedEvent,
   type PaymentFailedEvent,
   type PaymentProcessedEvent,
+  withSpanFromContext,
 } from '@kafka-choreography/shared';
-import { withSpan } from '@kafka-choreography/shared';
 import { consumer } from './client.js';
 import {
   handleInventoryReserved,
@@ -16,6 +16,9 @@ import {
 
 /**
  * Subscribe to Kafka topics and handle events
+ * 
+ * Note: We extract trace context manually to ensure proper linking
+ * KafkaJsInstrumentation may not always extract context correctly
  */
 export async function subscribeToEvents(): Promise<void> {
   await consumer.subscribe({
@@ -29,18 +32,17 @@ export async function subscribeToEvents(): Promise<void> {
         return;
       }
 
-      await withSpan('order-service', 'kafka.consume', async (span) => {
-        try {
-          const event = JSON.parse(message.value!.toString());
+      try {
+        const event = JSON.parse(message.value!.toString());
 
-          if (span) {
-            span.setAttributes({
-              'kafka.topic': topic,
-              'kafka.partition': partition,
-              'event.type': event.eventType,
-              'order.id': event.orderId || 'unknown',
-            });
-          }
+        // Extract trace context from Kafka headers and create linked span
+        await withSpanFromContext('order-service', 'processEvent', message.headers || {}, async (span) => {
+          span.setAttributes({
+            'kafka.topic': topic,
+            'kafka.partition': partition,
+            'event.type': event.eventType,
+            'order.id': event.orderId || 'unknown',
+          });
 
           console.log(`📨 Received event: ${event.eventType}`, {
             topic,
@@ -70,15 +72,15 @@ export async function subscribeToEvents(): Promise<void> {
             default:
               console.warn('⚠️ Unknown event type', { eventType: event.eventType });
           }
-        } catch (error) {
-          console.error('❌ Error processing message', {
-            topic,
-            partition,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-          // In production, implement dead letter queue
-        }
-      });
+        });
+      } catch (error) {
+        console.error('❌ Error processing message', {
+          topic,
+          partition,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+        // In production, implement dead letter queue
+      }
     },
   });
 }

@@ -1,12 +1,19 @@
 import { producer } from './client.js';
 import type { ChoreographyEvent } from '@kafka-choreography/shared';
+import { injectTraceContext } from '@kafka-choreography/shared';
 
 /**
  * Publish event to Kafka topic
+ * 
+ * Note: We inject trace context manually to ensure proper propagation
+ * KafkaJsInstrumentation may not always inject context correctly
  */
 export async function publishEvent(event: ChoreographyEvent): Promise<void> {
   const topic = getTopicForEvent(event.eventType);
-
+  
+  // Inject trace context into headers for cross-service tracing
+  const traceHeaders = injectTraceContext();
+  
   await producer.send({
     topic,
     messages: [
@@ -17,6 +24,7 @@ export async function publishEvent(event: ChoreographyEvent): Promise<void> {
           eventType: event.eventType,
           orderId: event.orderId,
           userId: event.userId,
+          ...traceHeaders,
         },
       },
     ],

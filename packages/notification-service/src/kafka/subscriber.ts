@@ -1,4 +1,4 @@
-import { EventType, type NotificationSendRequestedEvent } from '@kafka-choreography/shared';
+import { EventType, type NotificationSendRequestedEvent, withSpanFromContext } from '@kafka-choreography/shared';
 import { consumer } from './client.js';
 import { handleNotificationSendRequested } from '../handlers/notification-handler.js';
 
@@ -18,24 +18,33 @@ export async function subscribeToEvents(): Promise<void> {
       }
 
       try {
-        const event = JSON.parse(message.value.toString());
+        const event = JSON.parse(message.value!.toString());
 
-        console.log(`📨 Received event: ${event.eventType}`, {
-          topic,
-          partition,
-          orderId: event.orderId,
-          eventId: event.eventId,
+        await withSpanFromContext('notification-service', 'processEvent', message.headers || {}, async (span) => {
+          span.setAttributes({
+            'kafka.topic': topic,
+            'kafka.partition': partition,
+            'event.type': event.eventType,
+            'order.id': event.orderId || 'unknown',
+          });
+
+          console.log(`📨 Received event: ${event.eventType}`, {
+            topic,
+            partition,
+            orderId: event.orderId,
+            eventId: event.eventId,
+          });
+
+          // Route event to appropriate handler
+          switch (event.eventType) {
+            case EventType.NOTIFICATION_SEND_REQUESTED:
+              await handleNotificationSendRequested(event as NotificationSendRequestedEvent);
+              break;
+
+            default:
+              console.warn('⚠️ Unknown event type', { eventType: event.eventType });
+          }
         });
-
-        // Route event to appropriate handler
-        switch (event.eventType) {
-          case EventType.NOTIFICATION_SEND_REQUESTED:
-            await handleNotificationSendRequested(event as NotificationSendRequestedEvent);
-            break;
-
-          default:
-            console.warn('⚠️ Unknown event type', { eventType: event.eventType });
-        }
       } catch (error) {
         console.error('❌ Error processing message', {
           topic,

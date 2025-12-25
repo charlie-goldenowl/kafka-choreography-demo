@@ -3,21 +3,20 @@
 A microservices system using Kafka Choreography Pattern to handle order processing and payment flows, with automatic compensation (rollback) on errors.
 
 **Tech Stack:**
-- 🚀 **Turborepo** - Monorepo build system with intelligent caching
-- 📦 **Kafka** - Event streaming platform
-- 🔷 **TypeScript** - Type-safe development
-- 🏗️ **Microservices** - 4 independent services communicating via events
+- **Turborepo** - Monorepo build system with intelligent caching
+- **Kafka** - Event streaming platform
+- **Microservices** - 4 independent services communicating via events
 
 ## 🏗️ Architecture
 
 This project uses **Choreography Pattern** to ensure data consistency in a microservices environment with **Eventually Consistent**:
 
-1. **Order Service** → Creates orders and coordinates workflow
-2. **Inventory Service** → Manages inventory, reserve/release
-3. **Payment Service** → Processes payments and refunds
-4. **Notification Service** → Sends email notifications
+1. **Order Service** Creates orders and coordinates workflow
+2. **Inventory Service**  Manages inventory, reserve/release
+3. **Payment Service**  Processes payments and refunds
+4. **Notification Service**  Sends email notifications
 
-Each service is independent, communicating via Kafka events, with no central orchestrator.
+Each service is independent, communicating via Kafka events, with no central orchestrator
 
 ### Architecture Diagram
 
@@ -82,62 +81,189 @@ Each service is independent, communicating via Kafka events, with no central orc
 - Each service subscribes to relevant topics and publishes events
 - Eventually consistent - services may process events at different times
 
-### 📊 Event Flow (Success Path)
+### 📊 Event Flow (Success Path) with Jaeger Tracing
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              Happy Path Flow with Distributed Tracing                   │
+│                                    (Single Trace ID)                                    │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
 Order Service          Inventory Service      Payment Service      Notification Service
      │                        │                      │                      │
+     │ [Span: createOrder]    │                      │                      │
+     │   Trace ID: xxxxx     │                      │                      │
+     │   Order ID: order-123  │                      │                      │
+     │                        │                      │                      │
      ├─ order.created ────────┼──────────────────────┼──────────────────────┤
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
+     │                        │                      │                      │
+     │                        │ [Span: processEvent] │                      │
+     │                        │ [Context extracted] │                      │
+     │                        │ [Span: handle...]   │                      │
      │                        │                      │                      │
      │ <─ inventory.reserved ─┤                      │                      │
+     │ [Context injected]     │                      │                      │
+     │                        │                      │                      │
+     │ [Span: handle...]      │                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     │ <─ payment.processed ─────────────────────────┤                      │
+     │                        │                      │ [Span: processEvent] │
+     │                        │                      │ [Context extracted] │
+     │                        │                      │ [Span: handle...]    │
      │                        │                      │                      │
-     ├─ order.confirmed ──────┼──────────────────────┼──────────────────────┤
+     │ <─ payment.processed ──────────────────────────┤                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     ├─ notification.send ───────────────────────────┼─────────────────────>│
+     │ [Span: handle...]      │                      │                      │
+     │                        │                      │                      │
+     ├─ order.confirmed ───────┼──────────────────────┼──────────────────────┤
+     │                        │                      │                      │
+     ├─ notification.send ────────────────────────────────────────────────>│
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     │ <─ notification.sent ─────────────────────────┼──────────────────────┤
+     │                        │                      │                      │ [Span: processEvent]
+     │                        │                      │                      │ [Context extracted]
+     │                        │                      │                      │ [Span: handle...]
+     │                        │                      │                      │
+     │                        │                      │                      │<─ notification.sent
+     │                        │                      │                      │
+     │ ✅ Order Confirmed     │                      │                      │
+     └────────────────────────┴──────────────────────┴──────────────────────┘
+
+📊 Jaeger Trace Structure:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Trace ID: xxxxx (same for all spans)                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Span 1:  [order-service]     http.post.orders                              │
+│ Span 2:  [order-service]     createOrder                                    │
+│ Span 3:  [order-service]     publishEvent (order.created)                  │
+│ Span 4:  [order-service]     publishEvent (inventory.reserve.requested)     │
+│ Span 5:  [inventory-service] processEvent (kafka.consume)                  │
+│ Span 6:  [inventory-service] handleInventoryReserveRequested                │
+│ Span 7:  [inventory-service] publishEvent (inventory.reserved)              │
+│ Span 8:  [order-service]     processEvent (kafka.consume)                  │
+│ Span 9:  [order-service]     handleInventoryReserved                        │
+│ Span 10: [order-service]     publishEvent (payment.process.requested)       │
+│ Span 11: [payment-service]   processEvent (kafka.consume)                   │
+│ Span 12: [payment-service]   handlePaymentProcessRequested                  │
+│ Span 13: [payment-service]   publishEvent (payment.processed)               │
+│ Span 14: [order-service]     processEvent (kafka.consume)                   │
+│ Span 15: [order-service]     handlePaymentProcessed                          │
+│ Span 16: [order-service]     publishEvent (order.confirmed)                 │
+│ Span 17: [order-service]     publishEvent (notification.send.requested)     │
+│ Span 18: [notification-svc]  processEvent (kafka.consume)                    │
+│ Span 19: [notification-svc]  handleNotificationSendRequested                │
+│ Span 20: [notification-svc]  publishEvent (notification.sent)                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+🔗 Context Propagation:
+   - Trace context injected into Kafka message headers when publishing
+   - Trace context extracted from Kafka message headers when consuming
+   - All spans share the same Trace ID, creating a complete distributed trace
 ```
 
-### ❌ Event Flow (Failure Path - Compensation)
+### ❌ Event Flow (Failure Path - Compensation) with Jaeger Tracing
 
 ```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                        Compensation Flow with Distributed Tracing                       │
+│                                    (Single Trace ID)                                    │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+
 Order Service          Inventory Service      Payment Service      Notification Service
      │                        │                      │                      │
+     │ [Span: createOrder]    │                      │                      │
+     │   Trace ID: yyyyy     │                      │                      │
+     │   Order ID: order-456  │                      │                      │
+     │                        │                      │                      │
      ├─ order.created ────────┼──────────────────────┼──────────────────────┤
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
      ├─ inventory.reserve ────>                      │                      │
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
+     │                        │                      │                      │
+     │                        │ [Span: processEvent] │                      │
+     │                        │ [Context extracted] │                      │
+     │                        │ [Span: handle...]   │                      │
      │                        │                      │                      │
      │ <─ inventory.reserved ─┤                      │                      │
+     │ [Context injected]     │                      │                      │
+     │                        │                      │                      │
+     │ [Span: handle...]      │                      │                      │
      │                        │                      │                      │
      ├─ payment.process ────────────────────────────>│                      │
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
+     │                        │                      │                      │
+     │                        │                      │ [Span: processEvent] │
+     │                        │                      │ [Context extracted] │
+     │                        │                      │ [Span: handle...]    │
+     │                        │                      │ ❌ Payment Failed    │
      │                        │                      │                      │
      │ <─ payment.failed ────────────────────────────┤                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     ├─ order.cancelled ──────┼──────────────────────┼──────────────────────┤
+     │ [Span: handle...]      │                      │                      │
+     │ [Span: cancelOrder]    │                      │                      │
+     │                        │                      │                      │
+     ├─ order.cancelled ───────┼──────────────────────┼──────────────────────┤
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
      ├─ inventory.release ────>                      │                      │
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     │ <─ inventory.released ─┤                      │                      │
+     │                        │ [Span: processEvent] │                      │
+     │                        │ [Context extracted] │                      │
+     │                        │ [Span: handle...]    │                      │
      │                        │                      │                      │
-     ├─ payment.refund ─────────────────────────────>│                      │
+     ├─ notification.send ────────────────────────────────────────────────>│
      │   .requested           │                      │                      │
+     │ [Context injected]     │                      │                      │
      │                        │                      │                      │
-     │ <─ payment.refunded ──────────────────────────┤                      │
+     │                        │                      │                      │ [Span: processEvent]
+     │                        │                      │                      │ [Context extracted]
+     │                        │                      │                      │ [Span: handle...]
      │                        │                      │                      │
-     ├─ notification.send ───────────────────────────┼─────────────────────>│
-     │   .requested           │                      │                      │
+     │ ❌ Order Cancelled     │                      │                      │
+     │    (Compensation)      │                      │                      │
+     └────────────────────────┴──────────────────────┴──────────────────────┘
+
+📊 Jaeger Trace Structure (Compensation):
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Trace ID: yyyyy (same for all spans)                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Span 1-10:  [Same as happy path until payment failure]                     │
+│ Span 11: [payment-service]   handlePaymentProcessRequested                  │
+│ Span 12: [payment-service]   publishEvent (payment.failed) ❌               │
+│ Span 13: [order-service]     processEvent (kafka.consume)                    │
+│ Span 14: [order-service]     handlePaymentFailed                            │
+│ Span 15: [order-service]     cancelOrder                                    │
+│ Span 16: [order-service]     publishEvent (order.cancelled)                 │
+│ Span 17: [order-service]     publishEvent (inventory.release.requested)     │
+│ Span 18: [inventory-service] processEvent (kafka.consume)                    │
+│ Span 19: [inventory-service] handleInventoryReleaseRequested                 │
+│ Span 20: [inventory-service] publishEvent (inventory.released)              │
+│ Span 21: [order-service]     publishEvent (notification.send.requested)      │
+│ Span 22: [notification-svc]  processEvent (kafka.consume)                   │
+│ Span 23: [notification-svc]  handleNotificationSendRequested                  │
+│ Span 24: [notification-svc]  publishEvent (notification.sent)                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+🔗 Context Propagation:
+   - All spans maintain the same Trace ID throughout the compensation flow
+   - Context propagated via Kafka headers ensures trace continuity
+   - Complete visibility into rollback operations
 ```
 
 ## 📋 Requirements
@@ -372,16 +498,21 @@ curl http://localhost:3004/health
 Expected response:
 ```json
 {"status":"ok","service":"order-service"}
+{"status":"ok","service":"inventory-service"}
+{"status":"ok","service":"payment-service"}
+{"status":"ok","service":"notification-service"}
 ```
 
-### Step 2: Test Case 1 - Successful Order (amount < 1000)
+### Step 2: Test Case 1 - Happy Path (Successful Order)
+
+**Create order with totalAmount < 1000 (will succeed):**
 
 ```bash
 # Create a successful order
 curl -X POST http://localhost:3001/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "orderId": "order-test-success",
+    "orderId": "order-happy-001",
     "userId": "user-123",
     "items": [
       {"itemId": "item-1", "name": "Product 1", "quantity": 2, "price": 100},
@@ -393,22 +524,25 @@ curl -X POST http://localhost:3001/orders \
 
 Expected response:
 ```json
-{"message":"Order created","orderId":"order-test-success"}
+{"message":"Order created","orderId":"order-happy-001"}
 ```
 
-**Wait 5-8 seconds for processing, then check order status:**
+**Wait 5-8 seconds for processing, then check:**
 
 ```bash
 # Check order status (should be "confirmed")
-curl http://localhost:3001/orders/order-test-success
+curl http://localhost:3001/orders/order-happy-001
 ```
 
 Expected response:
 ```json
 {
-  "orderId": "order-test-success",
+  "orderId": "order-happy-001",
   "userId": "user-123",
-  "items": [...],
+  "items": [
+    {"itemId": "item-1", "name": "Product 1", "quantity": 2, "price": 100},
+    {"itemId": "item-2", "name": "Product 2", "quantity": 1, "price": 200}
+  ],
   "totalAmount": 400,
   "status": "confirmed",
   "createdAt": "2025-12-25T10:39:23.568Z",
@@ -428,14 +562,28 @@ curl http://localhost:3002/inventory
 curl http://localhost:3003/payments
 ```
 
-### Step 3: Test Case 2 - Failed Order with Compensation (amount > 1000)
+**Check all orders:**
+
+```bash
+curl http://localhost:3001/orders
+```
+
+**Expected flow in Jaeger trace (with spans):**
+- ✅ order-service: createOrder, handleInventoryReserved, handlePaymentProcessed
+- ✅ inventory-service: handleInventoryReserveRequested
+- ✅ payment-service: handlePaymentProcessRequested
+- ✅ notification-service: handleNotificationSendRequested
+
+### Step 3: Test Case 2 - Compensation Scenario (Failed Order)
+
+**Create order with totalAmount > 1000 (will trigger payment failure and compensation):**
 
 ```bash
 # Create a failed order (will trigger compensation)
 curl -X POST http://localhost:3001/orders \
   -H "Content-Type: application/json" \
   -d '{
-    "orderId": "order-test-failed",
+    "orderId": "order-compensation-001",
     "userId": "user-456",
     "items": [
       {"itemId": "item-1", "name": "Product 1", "quantity": 5, "price": 300},
@@ -445,19 +593,27 @@ curl -X POST http://localhost:3001/orders \
   }'
 ```
 
-**Wait 5-8 seconds for processing and compensation, then check order status:**
+Expected response:
+```json
+{"message":"Order created","orderId":"order-compensation-001"}
+```
+
+**Wait 5-8 seconds for processing and compensation, then check:**
 
 ```bash
 # Check order status (should be "cancelled")
-curl http://localhost:3001/orders/order-test-failed
+curl http://localhost:3001/orders/order-compensation-001
 ```
 
 Expected response:
 ```json
 {
-  "orderId": "order-test-failed",
+  "orderId": "order-compensation-001",
   "userId": "user-456",
-  "items": [...],
+  "items": [
+    {"itemId": "item-1", "name": "Product 1", "quantity": 5, "price": 300},
+    {"itemId": "item-3", "name": "Product 3", "quantity": 3, "price": 400}
+  ],
   "totalAmount": 2700,
   "status": "cancelled",
   "createdAt": "2025-12-25T10:37:50.333Z",
@@ -465,18 +621,117 @@ Expected response:
 }
 ```
 
-**Verify compensation:**
-- Inventory should be released (check inventory endpoint)
-- No payment should be created (check payments endpoint)
+**Verify compensation has been executed:**
 
-### Step 4: View All Orders
+```bash
+# Check inventory (should be released, no longer reserved)
+curl http://localhost:3002/inventory
+
+# Check payments (should NOT have payment record for this order)
+curl http://localhost:3003/payments
+```
+
+**Compensation flow:**
+1. ✅ Order created
+2. ✅ Inventory reserved
+3. ❌ Payment failed (because amount > 1000)
+4. ✅ Order cancelled
+5. ✅ Inventory released (compensation)
+6. ✅ Cancellation notification sent
+
+**Expected Jaeger Trace Structure (Compensation):**
+
+```
+Trace ID: [same for all spans]
+├─ Span 1-10:  [Same as happy path until payment failure]
+├─ Span 11: [payment-service]   handlePaymentProcessRequested
+├─ Span 12: [payment-service]   publishEvent (payment.failed) ❌
+├─ Span 13: [order-service]     processEvent (kafka.consume)
+├─ Span 14: [order-service]     handlePaymentFailed
+├─ Span 15: [order-service]     cancelOrder
+├─ Span 16: [order-service]     publishEvent (order.cancelled)
+├─ Span 17: [order-service]     publishEvent (inventory.release.requested)
+├─ Span 18: [inventory-service] processEvent (kafka.consume)
+├─ Span 19: [inventory-service] handleInventoryReleaseRequested
+├─ Span 20: [inventory-service] publishEvent (inventory.released)
+├─ Span 21: [order-service]     publishEvent (notification.send.requested)
+├─ Span 22: [notification-svc]  processEvent (kafka.consume)
+├─ Span 23: [notification-svc]  handleNotificationSendRequested
+└─ Span 24: [notification-svc]  publishEvent (notification.sent)
+```
+
+**All spans share the same Trace ID, showing complete compensation flow.**
+
+### Step 4: Complete cURL Command Examples
+
+#### Happy Path - Complete Flow
+
+```bash
+# 1. Create successful order
+ORDER_ID="order-$(date +%s)"
+curl -X POST http://localhost:3001/orders \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"orderId\": \"$ORDER_ID\",
+    \"userId\": \"user-happy\",
+    \"items\": [
+      {\"itemId\": \"item-1\", \"name\": \"Product 1\", \"quantity\": 2, \"price\": 100},
+      {\"itemId\": \"item-2\", \"name\": \"Product 2\", \"quantity\": 1, \"price\": 200}
+    ],
+    \"totalAmount\": 400
+  }"
+
+# 2. Wait for processing
+sleep 8
+
+# 3. Check order status
+curl http://localhost:3001/orders/$ORDER_ID
+
+# 4. Check inventory
+curl http://localhost:3002/inventory
+
+# 5. Check payments
+curl http://localhost:3003/payments
+```
+
+#### Compensation Scenario - Complete Flow
+
+```bash
+# 1. Create order that will fail (amount > 1000)
+ORDER_ID="order-comp-$(date +%s)"
+curl -X POST http://localhost:3001/orders \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"orderId\": \"$ORDER_ID\",
+    \"userId\": \"user-comp\",
+    \"items\": [
+      {\"itemId\": \"item-1\", \"name\": \"Product 1\", \"quantity\": 5, \"price\": 300},
+      {\"itemId\": \"item-3\", \"name\": \"Product 3\", \"quantity\": 3, \"price\": 400}
+    ],
+    \"totalAmount\": 2700
+  }"
+
+# 2. Wait for processing and compensation
+sleep 8
+
+# 3. Check order status (should be cancelled)
+curl http://localhost:3001/orders/$ORDER_ID
+
+# 4. Check inventory (should be released)
+curl http://localhost:3002/inventory
+
+# 5. Check payments (should NOT have payment for this order)
+curl http://localhost:3003/payments
+```
+
+### Step 5: View All Orders
 
 ```bash
 # Get all orders
 curl http://localhost:3001/orders
 ```
 
-### Step 5: View Events in Kafka UI
+### Step 6: View Events in Kafka UI
 
 1. Open browser: http://localhost:8080
 2. Select cluster: **local**
@@ -653,39 +908,101 @@ When payment fails:
 | `notification.send.requested` | Order Service | Notification Service | Request to send notification |
 | `notification.sent` | Notification Service | (monitoring) | Notification sent |
 
-## 🧪 Test Cases
+## 🧪 Test Cases with cURL Commands
 
-### Test Case 1: Success
+### Test Case 1: Happy Path (Success)
 
-```json
-{
-  "orderId": "order-xxx-1",
-  "userId": "user-123",
-  "items": [
-    { "itemId": "item-1", "name": "Product 1", "quantity": 2, "price": 100 },
-    { "itemId": "item-2", "name": "Product 2", "quantity": 1, "price": 200 }
-  ],
-  "totalAmount": 400
-}
+**Description:** Order with totalAmount < 1000 will be processed successfully.
+
+**cURL Command:**
+
+```bash
+# Create successful order
+curl -X POST http://localhost:3001/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "order-happy-001",
+    "userId": "user-123",
+    "items": [
+      {"itemId": "item-1", "name": "Product 1", "quantity": 2, "price": 100},
+      {"itemId": "item-2", "name": "Product 2", "quantity": 1, "price": 200}
+    ],
+    "totalAmount": 400
+  }'
+
+# Wait 8 seconds for processing
+sleep 8
+
+# Check order status (should be "confirmed")
+curl http://localhost:3001/orders/order-happy-001
+
+# Check inventory (should be reserved)
+curl http://localhost:3002/inventory
+
+# Check payments (should have payment record)
+curl http://localhost:3003/payments
 ```
 
-Result: Order processed successfully, inventory reserved, payment processed, email sent.
+**Expected Result:**
+- ✅ Order status: `"confirmed"`
+- ✅ Inventory reserved
+- ✅ Payment processed
+- ✅ Confirmation email sent
 
-### Test Case 2: Failure (Compensation)
+**Expected Services and Spans in Jaeger Trace:**
+- ✅ order-service (createOrder, handleInventoryReserved, handlePaymentProcessed)
+- ✅ inventory-service (handleInventoryReserveRequested)
+- ✅ payment-service (handlePaymentProcessRequested)
+- ✅ notification-service (handleNotificationSendRequested)
 
-```json
-{
-  "orderId": "order-xxx-2",
-  "userId": "user-456",
-  "items": [
-    { "itemId": "item-1", "name": "Product 1", "quantity": 5, "price": 300 },
-    { "itemId": "item-3", "name": "Product 3", "quantity": 3, "price": 400 }
-  ],
-  "totalAmount": 2700
-}
+### Test Case 2: Compensation Scenario (Failure)
+
+**Description:** Order with totalAmount > 1000 will trigger payment failure and compensation flow.
+
+**cURL Command:**
+
+```bash
+# Create order that will fail (amount > 1000)
+curl -X POST http://localhost:3001/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "order-compensation-001",
+    "userId": "user-456",
+    "items": [
+      {"itemId": "item-1", "name": "Product 1", "quantity": 5, "price": 300},
+      {"itemId": "item-3", "name": "Product 3", "quantity": 3, "price": 400}
+    ],
+    "totalAmount": 2700
+  }'
+
+# Wait 8 seconds for processing and compensation
+sleep 8
+
+# Check order status (should be "cancelled")
+curl http://localhost:3001/orders/order-compensation-001
+
+# Check inventory (should be released)
+curl http://localhost:3002/inventory
+
+# Check payments (should NOT have payment for this order)
+curl http://localhost:3003/payments
 ```
 
-Result: Payment failed (amount > 1000), order cancelled, inventory released, refund processed (if any), cancellation email sent.
+**Expected Result:**
+- ❌ Payment failed (amount > 1000)
+- ✅ Order status: `"cancelled"`
+- ✅ Inventory released (compensation)
+- ✅ Cancellation email sent
+- ✅ No payment record created
+
+**Expected Services and Spans in Jaeger Trace:**
+
+- ✅ **order-service**: ~12-15 spans (HTTP, createOrder, handlers, cancelOrder, publishEvent)
+- ✅ **inventory-service**: ~6-8 spans (reserve + release operations)
+- ✅ **payment-service**: ~3-4 spans (processEvent, failed payment)
+- ✅ **notification-service**: ~3-4 spans (cancellation notification)
+
+**Total: ~24-30 spans in a single trace, all sharing the same Trace ID.**
 
 ## 📝 Logs
 

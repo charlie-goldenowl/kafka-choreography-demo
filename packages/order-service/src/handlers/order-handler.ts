@@ -44,7 +44,6 @@ export async function createOrder(orderData: OrderData): Promise<void> {
       status: 'created' as const,
       createdAt: new Date().toISOString(),
     };
-
     orderStore.create(order);
 
     // Publish order.created event
@@ -115,7 +114,7 @@ export async function handleInventoryReserved(event: InventoryReservedEvent): Pr
       },
     );
 
-    await publishEvent(paymentEvent);
+      await publishEvent(paymentEvent);
     console.log('💳 Payment processing requested', { orderId });
   });
 }
@@ -126,22 +125,36 @@ export async function handleInventoryReserved(event: InventoryReservedEvent): Pr
  */
 export async function handleInventoryReservationFailed(
   event: InventoryReservationFailedEvent,
+  _parentSpan?: Span | null,
 ): Promise<void> {
-  const { orderId, userId, data } = event;
+  return withSpan('order-service', 'handleInventoryReservationFailed', async (span) => {
+    const { orderId, userId, data } = event;
 
-  console.error('❌ Inventory reservation failed, cancelling order...', {
-    orderId,
-    reason: data.reason,
+    if (span) {
+      span.setAttributes({
+        'order.id': orderId,
+        'order.user_id': userId,
+        'event.type': 'inventory.reservation.failed',
+        'error': true,
+        'error.reason': data.reason,
+      });
+    }
+
+    console.error('❌ Inventory reservation failed, cancelling order...', {
+      orderId,
+      reason: data.reason,
+    });
+
+    await cancelOrder(orderId, userId, data.reason);
   });
-
-  await cancelOrder(orderId, userId, data.reason);
 }
 
 /**
  * Handle payment processed event
  * Confirm order and request notification
  */
-export async function handlePaymentProcessed(event: PaymentProcessedEvent): Promise<void> {
+export async function handlePaymentProcessed(event: PaymentProcessedEvent, parentSpan?: Span | null): Promise<void> {
+  // Pass parent span to withSpan to maintain trace continuity
   return withSpan('order-service', 'handlePaymentProcessed', async (span) => {
     const { orderId, userId, data } = event;
 
@@ -209,15 +222,25 @@ export async function handlePaymentProcessed(event: PaymentProcessedEvent): Prom
  * Handle payment failed event
  * Cancel order and trigger compensation
  */
-export async function handlePaymentFailed(event: PaymentFailedEvent): Promise<void> {
-  const { orderId, userId, data } = event;
+export async function handlePaymentFailed(event: PaymentFailedEvent, _parentSpan?: Span | null): Promise<void> {
+  return withSpan('order-service', 'handlePaymentFailed', async (span) => {
+    const { orderId, userId, data } = event;
 
-  console.error('❌ Payment failed, cancelling order...', {
-    orderId,
-    reason: data.reason,
+    span.setAttributes({
+      'order.id': orderId,
+      'order.user_id': userId,
+      'event.type': 'payment.failed',
+      'error': true,
+      'error.reason': data.reason,
+    });
+
+    console.error('❌ Payment failed, cancelling order...', {
+      orderId,
+      reason: data.reason,
+    });
+
+    await cancelOrder(orderId, userId, data.reason);
   });
-
-  await cancelOrder(orderId, userId, data.reason);
 }
 
 /**
@@ -262,7 +285,7 @@ async function cancelOrder(orderId: string, userId: string, reason: string): Pro
     },
   );
 
-  await publishEvent(inventoryReleaseEvent);
+    await publishEvent(inventoryReleaseEvent);
   console.log('📦 Inventory release requested', { orderId });
 
   // Request cancellation notification
@@ -278,7 +301,7 @@ async function cancelOrder(orderId: string, userId: string, reason: string): Pro
     },
   );
 
-  await publishEvent(notificationEvent);
+    await publishEvent(notificationEvent);
   console.log('📧 Cancellation notification requested', { orderId });
 }
 

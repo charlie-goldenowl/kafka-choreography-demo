@@ -10,6 +10,7 @@ import {
   type PaymentRefundedEvent,
   type ProcessPaymentResult,
 } from '@kafka-choreography/shared';
+import type { Span } from '@opentelemetry/api';
 import { publishEvent } from '../kafka/publisher.js';
 import { paymentStore } from '../storage/payment-store.js';
 
@@ -19,6 +20,7 @@ import { paymentStore } from '../storage/payment-store.js';
  */
 export async function handlePaymentProcessRequested(
   event: PaymentProcessRequestedEvent,
+  span?: Span | null,
 ): Promise<void> {
   const { orderId, userId, data } = event;
   const { amount } = data;
@@ -185,6 +187,7 @@ export async function handlePaymentProcessRequested(
  */
 export async function handlePaymentRefundRequested(
   event: PaymentRefundRequestedEvent,
+  span?: Span | null,
 ): Promise<void> {
   const { orderId, userId, data } = event;
   const { paymentId } = data;
