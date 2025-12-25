@@ -5,6 +5,7 @@ import {
   type PaymentFailedEvent,
   type PaymentProcessedEvent,
 } from '@kafka-choreography/shared';
+import { withSpan } from '@kafka-choreography/shared';
 import { consumer } from './client.js';
 import {
   handleInventoryReserved,
@@ -28,45 +29,56 @@ export async function subscribeToEvents(): Promise<void> {
         return;
       }
 
-      try {
-        const event = JSON.parse(message.value.toString());
+      await withSpan('order-service', 'kafka.consume', async (span) => {
+        try {
+          const event = JSON.parse(message.value!.toString());
 
-        console.log(`📨 Received event: ${event.eventType}`, {
-          topic,
-          partition,
-          orderId: event.orderId,
-          eventId: event.eventId,
-        });
+          if (span) {
+            span.setAttributes({
+              'kafka.topic': topic,
+              'kafka.partition': partition,
+              'event.type': event.eventType,
+              'order.id': event.orderId || 'unknown',
+            });
+          }
 
-        // Route event to appropriate handler
-        switch (event.eventType) {
-          case EventType.INVENTORY_RESERVED:
-            await handleInventoryReserved(event as InventoryReservedEvent);
-            break;
+          console.log(`📨 Received event: ${event.eventType}`, {
+            topic,
+            partition,
+            orderId: event.orderId,
+            eventId: event.eventId,
+          });
 
-          case EventType.INVENTORY_RESERVATION_FAILED:
-            await handleInventoryReservationFailed(event as InventoryReservationFailedEvent);
-            break;
+          // Route event to appropriate handler
+          switch (event.eventType) {
+            case EventType.INVENTORY_RESERVED:
+              await handleInventoryReserved(event as InventoryReservedEvent);
+              break;
 
-          case EventType.PAYMENT_PROCESSED:
-            await handlePaymentProcessed(event as PaymentProcessedEvent);
-            break;
+            case EventType.INVENTORY_RESERVATION_FAILED:
+              await handleInventoryReservationFailed(event as InventoryReservationFailedEvent);
+              break;
 
-          case EventType.PAYMENT_FAILED:
-            await handlePaymentFailed(event as PaymentFailedEvent);
-            break;
+            case EventType.PAYMENT_PROCESSED:
+              await handlePaymentProcessed(event as PaymentProcessedEvent);
+              break;
 
-          default:
-            console.warn('⚠️ Unknown event type', { eventType: event.eventType });
+            case EventType.PAYMENT_FAILED:
+              await handlePaymentFailed(event as PaymentFailedEvent);
+              break;
+
+            default:
+              console.warn('⚠️ Unknown event type', { eventType: event.eventType });
+          }
+        } catch (error) {
+          console.error('❌ Error processing message', {
+            topic,
+            partition,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          // In production, implement dead letter queue
         }
-      } catch (error) {
-        console.error('❌ Error processing message', {
-          topic,
-          partition,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        // In production, implement dead letter queue
-      }
+      });
     },
   });
 }

@@ -7,7 +7,7 @@ import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { Resource } from '@opentelemetry/resources';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
-import { trace } from '@opentelemetry/api';
+import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 const JAEGER_OTLP_ENDPOINT = process.env.JAEGER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces';
@@ -48,17 +48,24 @@ export function getTracer(serviceName: string) {
 export async function withSpan<T>(
   tracerName: string,
   spanName: string,
-  fn: (span: any) => Promise<T>,
+  fn: (span: Span | null) => Promise<T>,
 ): Promise<T> {
+  if (process.env.ENABLE_TRACING !== 'true') {
+    return fn(null);
+  }
+
   const tracer = getTracer(tracerName);
   const span = tracer.startSpan(spanName);
 
   try {
     const result = await fn(span);
-    span.setStatus({ code: 1 }); // OK
+    span.setStatus({ code: SpanStatusCode.OK });
     return result;
   } catch (error) {
-    span.setStatus({ code: 2, message: error instanceof Error ? error.message : 'Unknown error' }); // ERROR
+    span.setStatus({ 
+      code: SpanStatusCode.ERROR, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
     span.recordException(error instanceof Error ? error : new Error(String(error)));
     throw error;
   } finally {

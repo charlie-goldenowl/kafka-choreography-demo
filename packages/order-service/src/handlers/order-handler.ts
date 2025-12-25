@@ -13,6 +13,7 @@ import {
   type PaymentFailedEvent,
   type PaymentProcessedEvent,
 } from '@kafka-choreography/shared';
+import { withSpan } from '@kafka-choreography/shared';
 import { publishEvent } from '../kafka/publisher.js';
 import { orderStore } from '../storage/order-store.js';
 
@@ -20,51 +21,62 @@ import { orderStore } from '../storage/order-store.js';
  * Create new order and publish order.created event
  */
 export async function createOrder(orderData: OrderData): Promise<void> {
-  const { orderId, userId, items, totalAmount } = orderData;
+  return withSpan('order-service', 'createOrder', async (span) => {
+    const { orderId, userId, items, totalAmount } = orderData;
 
-  console.log('📝 Creating order...', { orderId, userId, totalAmount });
+    if (span) {
+      span.setAttributes({
+        'order.id': orderId,
+        'order.user_id': userId,
+        'order.total_amount': totalAmount,
+        'order.items_count': items.length,
+      });
+    }
 
-  // Create order in local store
-  const order = {
-    orderId,
-    userId,
-    items,
-    totalAmount,
-    status: 'created' as const,
-    createdAt: new Date().toISOString(),
-  };
+    console.log('📝 Creating order...', { orderId, userId, totalAmount });
 
-  orderStore.create(order);
-
-  // Publish order.created event
-  const event = createEvent<OrderCreatedEvent>(
-    EventType.ORDER_CREATED,
-    orderId,
-    userId,
-    {
+    // Create order in local store
+    const order = {
       orderId,
       userId,
       items,
       totalAmount,
-    },
-  );
+      status: 'created' as const,
+      createdAt: new Date().toISOString(),
+    };
 
-  await publishEvent(event);
-  console.log('✅ Order created and event published', { orderId, eventId: event.eventId });
+    orderStore.create(order);
 
-  // Request inventory reservation
-  const inventoryEvent = createEvent<InventoryReserveRequestedEvent>(
-    EventType.INVENTORY_RESERVE_REQUESTED,
-    orderId,
-    userId,
-    {
+    // Publish order.created event
+    const event = createEvent<OrderCreatedEvent>(
+      EventType.ORDER_CREATED,
       orderId,
-      items,
-    },
-  );
+      userId,
+      {
+        orderId,
+        userId,
+        items,
+        totalAmount,
+      },
+    );
 
-  await publishEvent(inventoryEvent);
-  console.log('📦 Inventory reservation requested', { orderId });
+    await publishEvent(event);
+    console.log('✅ Order created and event published', { orderId, eventId: event.eventId });
+
+    // Request inventory reservation
+    const inventoryEvent = createEvent<InventoryReserveRequestedEvent>(
+      EventType.INVENTORY_RESERVE_REQUESTED,
+      orderId,
+      userId,
+      {
+        orderId,
+        items,
+      },
+    );
+
+    await publishEvent(inventoryEvent);
+    console.log('📦 Inventory reservation requested', { orderId });
+  });
 }
 
 /**
@@ -72,30 +84,40 @@ export async function createOrder(orderData: OrderData): Promise<void> {
  * Proceed to payment processing
  */
 export async function handleInventoryReserved(event: InventoryReservedEvent): Promise<void> {
-  const { orderId, userId } = event;
+  return withSpan('order-service', 'handleInventoryReserved', async (span) => {
+    const { orderId, userId } = event;
 
-  console.log('📦 Inventory reserved, requesting payment...', { orderId });
+    if (span) {
+      span.setAttributes({
+        'order.id': orderId,
+        'order.user_id': userId,
+        'event.type': 'inventory.reserved',
+      });
+    }
 
-  const order = orderStore.get(orderId);
-  if (!order) {
-    console.error('❌ Order not found', { orderId });
-    return;
-  }
+    console.log('📦 Inventory reserved, requesting payment...', { orderId });
 
-  // Request payment processing
-  const paymentEvent = createEvent(
-    EventType.PAYMENT_PROCESS_REQUESTED,
-    orderId,
-    userId,
-    {
+    const order = orderStore.get(orderId);
+    if (!order) {
+      console.error('❌ Order not found', { orderId });
+      return;
+    }
+
+    // Request payment processing
+    const paymentEvent = createEvent(
+      EventType.PAYMENT_PROCESS_REQUESTED,
       orderId,
       userId,
-      amount: order.totalAmount,
-    },
-  );
+      {
+        orderId,
+        userId,
+        amount: order.totalAmount,
+      },
+    );
 
-  await publishEvent(paymentEvent);
-  console.log('💳 Payment processing requested', { orderId });
+    await publishEvent(paymentEvent);
+    console.log('💳 Payment processing requested', { orderId });
+  });
 }
 
 /**
@@ -120,56 +142,67 @@ export async function handleInventoryReservationFailed(
  * Confirm order and request notification
  */
 export async function handlePaymentProcessed(event: PaymentProcessedEvent): Promise<void> {
-  const { orderId, userId, data } = event;
+  return withSpan('order-service', 'handlePaymentProcessed', async (span) => {
+    const { orderId, userId, data } = event;
 
-  console.log('💳 Payment processed, confirming order...', {
-    orderId,
-    paymentId: data.paymentId,
-  });
+    if (span) {
+      span.setAttributes({
+        'order.id': orderId,
+        'order.user_id': userId,
+        'payment.id': data.paymentId,
+        'event.type': 'payment.processed',
+      });
+    }
 
-  const order = orderStore.get(orderId);
-  if (!order) {
-    console.error('❌ Order not found', { orderId });
-    return;
-  }
-
-  // Update order status
-  orderStore.update(orderId, {
-    status: 'confirmed',
-    confirmedAt: new Date().toISOString(),
-  });
-
-  // Publish order confirmed event
-  const confirmedEvent = createEvent<OrderConfirmedEvent>(
-    EventType.ORDER_CONFIRMED,
-    orderId,
-    userId,
-    {
+    console.log('💳 Payment processed, confirming order...', {
       orderId,
-      userId,
-      totalAmount: order.totalAmount,
       paymentId: data.paymentId,
-    },
-  );
+    });
 
-  await publishEvent(confirmedEvent);
-  console.log('✅ Order confirmed', { orderId });
+    const order = orderStore.get(orderId);
+    if (!order) {
+      console.error('❌ Order not found', { orderId });
+      return;
+    }
 
-  // Request notification
-  const notificationEvent = createEvent<NotificationSendRequestedEvent>(
-    EventType.NOTIFICATION_SEND_REQUESTED,
-    orderId,
-    userId,
-    {
+    // Update order status
+    orderStore.update(orderId, {
+      status: 'confirmed',
+      confirmedAt: new Date().toISOString(),
+    });
+
+    // Publish order confirmed event
+    const confirmedEvent = createEvent<OrderConfirmedEvent>(
+      EventType.ORDER_CONFIRMED,
       orderId,
       userId,
-      type: 'confirmation',
-      totalAmount: order.totalAmount,
-    },
-  );
+      {
+        orderId,
+        userId,
+        totalAmount: order.totalAmount,
+        paymentId: data.paymentId,
+      },
+    );
 
-  await publishEvent(notificationEvent);
-  console.log('📧 Confirmation notification requested', { orderId });
+    await publishEvent(confirmedEvent);
+    console.log('✅ Order confirmed', { orderId });
+
+    // Request notification
+    const notificationEvent = createEvent<NotificationSendRequestedEvent>(
+      EventType.NOTIFICATION_SEND_REQUESTED,
+      orderId,
+      userId,
+      {
+        orderId,
+        userId,
+        type: 'confirmation',
+        totalAmount: order.totalAmount,
+      },
+    );
+
+    await publishEvent(notificationEvent);
+    console.log('📧 Confirmation notification requested', { orderId });
+  });
 }
 
 /**
